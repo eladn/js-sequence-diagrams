@@ -18,7 +18,12 @@
 function Diagram() {
   this.title   = undefined;
   this.actors  = [];
-  this.signals = [];
+  this.signals = []; // TODO: change name to something like: `elements`.
+  this.root_block = null;
+  
+  // TODO: write code & commands to support styling.
+  this.classes = {};
+  this.default_styles = {};
 }
 /*
  * Return an existing actor with this alias, or creates a new one with alias and name.
@@ -60,27 +65,263 @@ Diagram.prototype.setTitle = function(title) {
   this.title = title;
 };
 
-Diagram.prototype.addSignal = function(signal) {
-  this.signals.push(signal);
+Diagram.prototype.addElement = function(elem) {
+  this.signals.push(elem);
 };
 
 Diagram.Actor = function(alias, name, index) {
   this.alias = alias;
   this.name  = name;
   this.index = index;
+  
+  // not in use yet
+  this.minWidth = 0; // TODO: use this attribute instead of using `MinWidth` objects.
+};
+Diagram.Actor.prototype.getCenterX = function() {
+	return this.x + this.width / 2;
 };
 
-Diagram.Signal = function(actorA, signaltype, actorB, message) {
-  this.type       = 'Signal';
-  this.actorA     = actorA;
-  this.actorB     = actorB;
-  this.linetype   = signaltype & 3;
-  this.arrowtype  = (signaltype >> 2) & 3;
-  this.message    = message;
+Diagram.Signal = function(sourceActors, signaltype, targetActors, message) {
+  var actorsComparator = function(a, b) { return a.index - b.index; };
+  this.type           = 'Signal';
+  this.sourceActors   = _.uniq(sourceActors.sort(actorsComparator), true);  // list of actors that send the signal
+  this.targetActors   = _.uniq(targetActors.sort(actorsComparator), true);  // list of actors that receive the signal
+  this.linetype       = ('linetype' in signaltype) ? signaltype['linetype'] : undefined;
+  this.headarrowtype  = ('headarrowtype' in signaltype) ? signaltype['headarrowtype'] : undefined;
+  this.tailarrowtype  = ('tailarrowtype' in signaltype) ? signaltype['tailarrowtype'] : undefined;
+  this.message        = message;
+  this.parentBlock   = null;
 };
 
-Diagram.Signal.prototype.isSelf = function() {
-  return this.actorA.index == this.actorB.index;
+Diagram.Signal.prototype.isOnlySelf = function() {
+  return this.sourceActors.length == 1 && this.targetActors.length == 1 && this.sourceActors[0].index == this.targetActors[0].index;
+};
+
+Diagram.Signal.prototype.hasSelf = function() {
+	return _.some(this.targetActors, function(a) { return a.index == this.sourceActors[0].index; }, this);
+};
+
+Diagram.Signal.prototype.targetActors_center_xs = function() {
+	return _.map(this.targetActors, function(a) { return a.getCenterX(); });
+};
+Diagram.Signal.prototype.sourceActors_center_xs = function() {
+	return _.map(this.sourceActors, function(a) { return a.getCenterX(); });
+};
+Diagram.Signal.prototype.targetActors_max_center_x = function() {
+	return _.max(this.targetActors_center_xs());
+};
+Diagram.Signal.prototype.targetActors_min_center_x = function() {
+	return _.min(this.targetActors_center_xs());
+};
+Diagram.Signal.prototype.sourceActors_max_center_x = function() {
+	return _.max(this.sourceActors_center_xs());
+};
+Diagram.Signal.prototype.sourceActors_min_center_x = function() {
+	return _.min(this.sourceActors_center_xs());
+};
+Diagram.Signal.prototype.max_center_x = function() {
+	return Math.max(this.sourceActors_max_center_x(), this.targetActors_max_center_x());
+};
+Diagram.Signal.prototype.min_center_x = function() {
+	return Math.min(this.sourceActors_min_center_x(), this.targetActors_min_center_x());
+};
+Diagram.Signal.prototype.mid_center_x = function() {
+	return (this.max_center_x() - this.min_center_x())/2 + this.min_center_x();
+};
+
+Diagram.Signal.prototype.targetActorsIdxs = function() {
+	return _.map(this.targetActors, function(a) { return a.index; });
+};
+Diagram.Signal.prototype.sourceActorsIdxs= function() {
+	return _.map(this.sourceActors, function(a) { return a.index; });
+};
+Diagram.Signal.prototype.targetActorsMaxIdx = function() {
+	return _.max(this.targetActorsIdxs());
+};
+Diagram.Signal.prototype.targetActorsMinIdx = function() {
+	return _.min(this.targetActorsIdxs());
+};
+Diagram.Signal.prototype.sourceActorsMaxIdx = function() {
+	return _.max(this.sourceActorsIdxs());
+};
+Diagram.Signal.prototype.sourceActorsMinIdx = function() {
+	return _.min(this.sourceActorsIdxs());
+};
+Diagram.Signal.prototype.actorsMaxIdx = function() {
+	return Math.max(this.sourceActorsMaxIdx(), this.targetActorsMaxIdx());
+};
+Diagram.Signal.prototype.actorsMinIdx = function() {
+	return Math.min(this.sourceActorsMinIdx(), this.targetActorsMinIdx());
+};
+
+Diagram.Signal.prototype.getMinX = function() {
+	if (this.isOnlySelf()) {
+		return this.minX;
+	}
+	return Math.min(this.min_center_x(), this.mid_center_x() - 0.5*this.textWidth);
+};
+Diagram.Signal.prototype.getMaxX = function() {
+	if (this.isOnlySelf()) {
+		return this.maxX;
+	}
+	return Math.max(this.max_center_x(), this.mid_center_x() + 0.5*this.textWidth);
+};
+Diagram.Signal.prototype.isSingleSource = function() {
+	return (this.sourceActors.length == 1);
+};
+Diagram.Signal.prototype.useFeedArrows = function() {
+	return (!this.isSingleSource() || (this.sourceActors[0].index != this.actorsMinIdx() && this.sourceActors[0].index != this.actorsMaxIdx()));
+}
+Diagram.Space = function(spaceSize) {
+	this.type = 'Space';
+	this.spaceSize = parseInt(spaceSize);
+	this.message = '';
+	this.parentBlock = null;
+};
+
+// TODO: use `min-width` attribute of actor instead of generating this object.
+Diagram.MinWidth = function(actor, minWidth) {
+	this.type = 'MinWidth';
+	this.actor = actor;
+	this.minWidth = parseInt(minWidth);
+	this.message = '';
+	this.parentBlock = null;
+};
+
+Diagram.Block = function(order, children) {
+	this.type = 'Block';
+	this.parentBlock = null;
+	this.order = order || undefined;
+	this.y_offset = null;
+	this.contentsHeight = 0;
+	this.height = 0; // total height including groupBoxingElement
+	this.children = children || [];
+	this.groupTitleElement = undefined;
+	this.groupBoxingElement = undefined;
+	
+	// TODO: write code & commands to support styling.
+	// `style` member can has keys: 'default', 'title', 'actors', 'signal, 'note'.
+	// Each item in this dict has a dict with multiple style settings, like 'font', 'background'..
+	// example: style = { 'default': {'font': {'font-family': 'danielbd', 'font-weight': 700}}, 'title': {'font': { 'font-size': 16 }} }
+	this.styles = {};
+	this.useClasses = [];
+};
+Diagram.Block.prototype.getYOffsetForNextSon = function(son) {
+	if (this.y_offset == null) this.y_offset = this.parentBlock.getYOffsetForNextSon();
+	if (this.groupBoxingElement !== undefined && son === this.groupBoxingElement) return this.y_offset;
+	return this.y_offset + (this.groupTitleElement !== undefined && this.groupTitleElement.height !== undefined ? this.groupTitleElement.height : 0) + ((this.getOrder() == 'serial') ? this.contentsHeight : 0);
+};
+Diagram.Block.prototype.getOrder = function() {
+	if (this.order === undefined) {
+		this.order = this.parentBlock.getOrder();
+	}
+	return this.order;
+};
+Diagram.Block.prototype.updateHeight = function() {
+	this.contentsHeight = 0;
+	_.each(this.children, function(child) {
+		if (child.height === undefined) return;
+		if (this.getOrder() == 'serial') {
+			this.contentsHeight += child.height;
+		} else {
+			this.contentsHeight = Math.max(this.contentsHeight, child.height);
+		}
+	}, this);
+	this.height = this.getTotalHeight();
+	if (this.parentBlock != null) {
+		this.parentBlock.updateHeight();
+	}
+};
+Diagram.Block.prototype.getTotalHeight = function() {
+	var height = this.contentsHeight;
+	if (this.groupTitleElement !== undefined && this.groupTitleElement.height !== undefined) {
+		height += this.groupTitleElement.height;
+	}
+	return Math.max(height, (this.groupBoxingElement !== undefined && this.groupBoxingElement.height !== undefined ? this.groupBoxingElement.height : 0));
+};
+Diagram.Block.prototype.getWidth = function() {
+	return this.getMaxX() - this.getMinX();
+};
+Diagram.Block.prototype.getMinX = function() {
+	var minX = Infinity;
+	_.each(this.children, function(child) {
+		if (child.getMinX !== undefined) {
+			minX = Math.min(minX, child.getMinX());
+		} else if (child.minX !== undefined) {
+			minX = Math.min(minX, child.minX);
+		}
+	}, this);
+	return minX;
+};
+Diagram.Block.prototype.getMaxX = function() {
+	var maxX = -Infinity;
+	_.each(this.children, function(child) {
+		if (child.getMaxX !== undefined) {
+			maxX = Math.max(maxX, child.getMaxX());
+		} else if (child.maxX !== undefined) {
+			maxX = Math.max(maxX, child.maxX);
+		}
+	}, this);
+	return maxX;
+};
+Diagram.Block.prototype.addStyle = function(style) {
+	if (style.elementType) { 
+		this.styles[style.elementType + '__' + style.styleProperty] = style.value;
+	} else {
+		this.styles[style.styleProperty] = style.value;
+	}
+};
+Diagram.Block.prototype.getStyle = function(elementType, styleProperty, default_styles) {
+	var styleKey = elementType + '__' + styleProperty;
+	for(var block = this; block != null; block = block.parentBlock) {
+		if (block.styles[styleKey] !== undefined) return block.styles[styleKey];
+		if (block.styles[styleProperty] !== undefined) return block.styles[styleProperty];
+	}
+	if (default_styles === undefined) return undefined;
+	if (default_styles[styleKey] !== undefined) return default_styles[styleKey];
+	return default_styles[styleProperty];
+};
+Diagram.Block.prototype.getFontStyle = function(elementType, default_styles) {
+	var font = {'font-family': undefined, 'font-size': undefined, 'font-width': undefined, 'color': undefined};
+	for (var property in font) {
+		if (!font.hasOwnProperty(property)) continue;
+		font[property] = this.getStyle(elementType, property, default_styles);
+		if (font[property] === undefined) delete font[property];
+	}
+	if (font['color'] !== undefined) {
+		font['fill'] = font['color'];
+		delete font['color'];
+	}
+	
+	return font;
+}
+Diagram.Block.prototype.getDrawingStyle = function(elementType, default_styles) {
+	var style = {'fill': undefined, 'stroke': undefined, 'stroke-width': undefined };
+	for (var property in style) {
+		if (!style.hasOwnProperty(property)) continue;
+		style[property] = this.getStyle(elementType, property, default_styles);
+		if (style[property] === undefined) delete style[property];
+	}
+	return style;
+}
+
+Diagram.GroupTitle = function(title) {
+	this.type        = 'GroupTitle';
+	this.message     = title;
+	this.parentBlock = null;
+};
+
+Diagram.GroupBox = function() {
+	this.type        = 'GroupBox';
+	this.message     = '';
+	this.parentBlock = null;
+};
+
+Diagram.Style = function(elementType, styleProperty, value) {
+	this.type        = 'Style';
+	this.elementType = elementType;
+	this.styleProperty = styleProperty;
+	this.value = value;
 };
 
 Diagram.Note = function(actor, placement, message) {
@@ -88,6 +329,7 @@ Diagram.Note = function(actor, placement, message) {
   this.actor     = actor;
   this.placement = placement;
   this.message   = message;
+  this.parentBlock = null;
 
   if (this.hasManyActors() && actor[0] == actor[1]) {
     throw new Error('Note should be over two different actors');
@@ -110,7 +352,33 @@ Diagram.LINETYPE = {
 
 Diagram.ARROWTYPE = {
   FILLED: 0,
-  OPEN: 1
+  OPEN: 1,
+  DOT: 2,
+  FILLED_INVERTED: 3,
+  OPEN_INVERTED: 4
+};
+
+Diagram.flipArrowType = function(arrowtype) {
+	switch(arrowtype) {
+		case Diagram.ARROWTYPE.FILLED_INVERTED:
+		return Diagram.ARROWTYPE.FILLED;
+		case Diagram.ARROWTYPE.FILLED:
+		return Diagram.ARROWTYPE.FILLED_INVERTED;
+		case Diagram.ARROWTYPE.OPEN:
+		return Diagram.ARROWTYPE.OPEN_INVERTED;
+		case Diagram.ARROWTYPE.OPEN_INVERTED:
+		return Diagram.ARROWTYPE.OPEN;
+	}
+	return arrowtype;
+};
+
+Diagram.ElementTypes = {
+	'Signal': true,
+	'Note': true,
+	'Space': true,
+	'MinWidth': true,
+	'GroupTitle': true,
+	'GroupBox': true
 };
 
 Diagram.PLACEMENT = {
@@ -219,7 +487,7 @@ var parser = function() {
     var o = function(k, v, o, l) {
         for (o = o || {}, l = k.length; l--; o[k[l]] = v) ;
         return o;
-    }, $V0 = [ 5, 8, 9, 13, 15, 24 ], $V1 = [ 1, 13 ], $V2 = [ 1, 17 ], $V3 = [ 24, 29, 30 ], parser = {
+    }, $V0 = [ 5, 8, 9, 11, 25, 28, 29, 30, 31, 36, 37, 38, 46, 53 ], $V1 = [ 2, 19 ], $V2 = [ 1, 14 ], $V3 = [ 1, 13 ], $V4 = [ 1, 16 ], $V5 = [ 1, 34 ], $V6 = [ 1, 38 ], $V7 = [ 5, 8, 9, 11, 25, 28, 29, 30, 31, 36, 37, 38, 39, 40, 46, 49, 50, 51, 52, 53 ], $V8 = [ 5, 8, 9, 11, 25, 26, 28, 29, 30, 31, 36, 37, 38, 46, 53 ], $V9 = [ 1, 44 ], $Va = [ 1, 41 ], $Vb = [ 1, 45 ], $Vc = [ 1, 46 ], $Vd = [ 1, 47 ], $Ve = [ 8, 25, 26, 28, 29, 30, 31, 36, 37, 38, 46, 53 ], $Vf = [ 1, 68 ], $Vg = [ 1, 69 ], $Vh = [ 1, 70 ], $Vi = [ 1, 71 ], $Vj = [ 1, 72 ], $Vk = [ 1, 73 ], $Vl = [ 1, 74 ], $Vm = [ 1, 75 ], $Vn = [ 1, 76 ], $Vo = [ 39, 40, 49, 50, 51, 52 ], $Vp = [ 37, 46 ], $Vq = [ 37, 46, 50, 51 ], $Vr = [ 37, 39, 46, 49 ], $Vs = [ 59, 60, 61, 62, 63, 64, 65, 66, 67 ], parser = {
         trace: function() {},
         yy: {},
         symbols_: {
@@ -232,27 +500,63 @@ var parser = function() {
             NL: 8,
             participant: 9,
             actor_alias: 10,
-            signal: 11,
-            note_statement: 12,
-            title: 13,
-            message: 14,
-            note: 15,
-            placement: 16,
-            actor: 17,
-            over: 18,
-            actor_pair: 19,
-            ",": 20,
-            left_of: 21,
-            right_of: 22,
-            signaltype: 23,
-            ACTOR: 24,
-            linetype: 25,
-            arrowtype: 26,
-            LINE: 27,
-            DOTLINE: 28,
-            ARROW: 29,
-            OPENARROW: 30,
-            MESSAGE: 31,
+            title: 11,
+            message: 12,
+            element_statements_block_wo_brackets: 13,
+            element_statement: 14,
+            signal_statement: 15,
+            note_statement: 16,
+            space_statement: 17,
+            minwidth_statement: 18,
+            parallel_block: 19,
+            serial_block: 20,
+            element_statements_block: 21,
+            style_statement: 22,
+            element_statement_line: 23,
+            element_statements: 24,
+            CURLY_LEFT_BRACKET: 25,
+            CURLY_RIGHT_BRACKET: 26,
+            group_title: 27,
+            group: 28,
+            parallel: 29,
+            serial: 30,
+            note: 31,
+            placement: 32,
+            actor: 33,
+            over: 34,
+            actor_pair: 35,
+            space: 36,
+            NUMBER: 37,
+            minwidth: 38,
+            LINE: 39,
+            ",": 40,
+            left_of: 41,
+            right_of: 42,
+            actors: 43,
+            signaltype: 44,
+            actor_name: 45,
+            ACTOR: 46,
+            linetype: 47,
+            arrowtype: 48,
+            DOTLINE: 49,
+            ARROW: 50,
+            OPENARROW: 51,
+            MESSAGE: 52,
+            style: 53,
+            elementtype: 54,
+            style_property: 55,
+            signal: 56,
+            grouptitle: 57,
+            groupbox: 58,
+            font_family: 59,
+            font_weight: 60,
+            font_size: 61,
+            stroke: 62,
+            stroke_width: 63,
+            fill: 64,
+            font_color: 65,
+            color: 66,
+            css_class: 67,
             $accept: 0,
             $end: 1
         },
@@ -261,20 +565,41 @@ var parser = function() {
             5: "EOF",
             8: "NL",
             9: "participant",
-            13: "title",
-            15: "note",
-            18: "over",
-            20: ",",
-            21: "left_of",
-            22: "right_of",
-            24: "ACTOR",
-            27: "LINE",
-            28: "DOTLINE",
-            29: "ARROW",
-            30: "OPENARROW",
-            31: "MESSAGE"
+            11: "title",
+            25: "CURLY_LEFT_BRACKET",
+            26: "CURLY_RIGHT_BRACKET",
+            28: "group",
+            29: "parallel",
+            30: "serial",
+            31: "note",
+            34: "over",
+            36: "space",
+            37: "NUMBER",
+            38: "minwidth",
+            39: "LINE",
+            40: ",",
+            41: "left_of",
+            42: "right_of",
+            46: "ACTOR",
+            49: "DOTLINE",
+            50: "ARROW",
+            51: "OPENARROW",
+            52: "MESSAGE",
+            53: "style",
+            56: "signal",
+            57: "grouptitle",
+            58: "groupbox",
+            59: "font_family",
+            60: "font_weight",
+            61: "font_size",
+            62: "stroke",
+            63: "stroke_width",
+            64: "fill",
+            65: "font_color",
+            66: "color",
+            67: "css_class"
         },
-        productions_: [ 0, [ 3, 2 ], [ 4, 0 ], [ 4, 2 ], [ 6, 1 ], [ 6, 1 ], [ 7, 2 ], [ 7, 1 ], [ 7, 1 ], [ 7, 2 ], [ 12, 4 ], [ 12, 4 ], [ 19, 1 ], [ 19, 3 ], [ 16, 1 ], [ 16, 1 ], [ 11, 4 ], [ 17, 1 ], [ 10, 1 ], [ 23, 2 ], [ 23, 1 ], [ 25, 1 ], [ 25, 1 ], [ 26, 1 ], [ 26, 1 ], [ 14, 1 ] ],
+        productions_: [ 0, [ 3, 2 ], [ 4, 0 ], [ 4, 2 ], [ 6, 1 ], [ 6, 1 ], [ 7, 2 ], [ 7, 2 ], [ 7, 1 ], [ 14, 1 ], [ 14, 1 ], [ 14, 1 ], [ 14, 1 ], [ 14, 1 ], [ 14, 1 ], [ 14, 1 ], [ 14, 1 ], [ 23, 1 ], [ 23, 1 ], [ 24, 0 ], [ 24, 2 ], [ 13, 1 ], [ 21, 3 ], [ 21, 4 ], [ 27, 2 ], [ 19, 2 ], [ 20, 2 ], [ 16, 4 ], [ 16, 4 ], [ 17, 2 ], [ 18, 4 ], [ 35, 1 ], [ 35, 3 ], [ 32, 1 ], [ 32, 1 ], [ 15, 4 ], [ 43, 1 ], [ 43, 3 ], [ 33, 1 ], [ 10, 1 ], [ 45, 1 ], [ 45, 1 ], [ 44, 2 ], [ 44, 2 ], [ 44, 3 ], [ 44, 1 ], [ 47, 1 ], [ 47, 1 ], [ 48, 1 ], [ 48, 1 ], [ 12, 1 ], [ 22, 4 ], [ 22, 3 ], [ 54, 1 ], [ 54, 1 ], [ 54, 1 ], [ 54, 1 ], [ 54, 1 ], [ 54, 1 ], [ 54, 1 ], [ 54, 1 ], [ 55, 1 ], [ 55, 1 ], [ 55, 1 ], [ 55, 1 ], [ 55, 1 ], [ 55, 1 ], [ 55, 1 ], [ 55, 1 ], [ 55, 1 ] ],
         performAction: function(yytext, yyleng, yylineno, yy, yystate, $$, _$) {
             /* this == yyval */
             var $0 = $$.length - 1;
@@ -290,73 +615,241 @@ var parser = function() {
                 break;
 
               case 7:
-              case 8:
-                yy.parser.yy.addSignal($$[$0]);
-                break;
-
-              case 9:
                 yy.parser.yy.setTitle($$[$0]);
                 break;
 
+              case 8:
+                yy.parser.yy.root_block = $$[$0], $$[$0].y_offset = 0, $$[$0].order = "serial";
+                break;
+
+              case 9:
               case 10:
-                this.$ = new Diagram.Note($$[$0 - 1], $$[$0 - 2], $$[$0]);
-                break;
-
               case 11:
-                this.$ = new Diagram.Note($$[$0 - 1], Diagram.PLACEMENT.OVER, $$[$0]);
-                break;
-
               case 12:
-              case 20:
-                this.$ = $$[$0];
+                this.$ = $$[$0], yy.parser.yy.addElement($$[$0]);
                 break;
 
               case 13:
-                this.$ = [ $$[$0 - 2], $$[$0] ];
-                break;
-
               case 14:
-                this.$ = Diagram.PLACEMENT.LEFTOF;
-                break;
-
               case 15:
-                this.$ = Diagram.PLACEMENT.RIGHTOF;
-                break;
-
               case 16:
-                this.$ = new Diagram.Signal($$[$0 - 3], $$[$0 - 2], $$[$0 - 1], $$[$0]);
-                break;
-
               case 17:
-                this.$ = yy.parser.yy.getActor(Diagram.unescape($$[$0]));
+              case 31:
+              case 40:
+              case 41:
+                this.$ = $$[$0];
                 break;
 
               case 18:
-                this.$ = yy.parser.yy.getActorWithAlias(Diagram.unescape($$[$0]));
+                this.$ = void 0;
                 break;
 
               case 19:
-                this.$ = $$[$0 - 1] | $$[$0] << 2;
+                this.$ = [];
+                break;
+
+              case 20:
+                this.$ = $$[$0 - 1], void 0 !== $$[$0] && $$[$0 - 1].push($$[$0]);
                 break;
 
               case 21:
-                this.$ = Diagram.LINETYPE.SOLID;
+                this.$ = new Diagram.Block(), this.$.children = [];
+                for (var i = 0; i < $$[$0].length; ++i) "Style" == $$[$0][i].type ? this.$.addStyle($$[$0][i]) : ($$[$0][i].parentBlock = this.$, 
+                this.$.children.push($$[$0][i]));
                 break;
 
               case 22:
-                this.$ = Diagram.LINETYPE.DOTTED;
+                this.$ = $$[$0 - 1];
                 break;
 
               case 23:
-                this.$ = Diagram.ARROWTYPE.FILLED;
+                this.$ = $$[$0 - 1], $$[$0 - 3].parentBlock = this.$, this.$.groupTitleElement = $$[$0 - 3], 
+                this.$.groupBoxingElement = new Diagram.GroupBox(), this.$.groupBoxingElement.parentBlock = this.$, 
+                yy.parser.yy.addElement(this.$.groupBoxingElement);
                 break;
 
               case 24:
-                this.$ = Diagram.ARROWTYPE.OPEN;
+                this.$ = new Diagram.GroupTitle($$[$0]), yy.parser.yy.addElement(this.$);
                 break;
 
               case 25:
+                this.$ = $$[$0], this.$.order = "parallel";
+                break;
+
+              case 26:
+                this.$ = $$[$0], this.$.order = "serial";
+                break;
+
+              case 27:
+                this.$ = new Diagram.Note($$[$0 - 1], $$[$0 - 2], $$[$0]);
+                break;
+
+              case 28:
+                this.$ = new Diagram.Note($$[$0 - 1], Diagram.PLACEMENT.OVER, $$[$0]);
+                break;
+
+              case 29:
+                this.$ = new Diagram.Space(parseInt($$[$0]));
+                break;
+
+              case 30:
+                this.$ = new Diagram.MinWidth($$[$0 - 2], parseInt($$[$0]));
+                break;
+
+              case 32:
+                this.$ = [ $$[$0 - 2], $$[$0] ];
+                break;
+
+              case 33:
+                this.$ = Diagram.PLACEMENT.LEFTOF;
+                break;
+
+              case 34:
+                this.$ = Diagram.PLACEMENT.RIGHTOF;
+                break;
+
+              case 35:
+                this.$ = new Diagram.Signal($$[$0 - 3], $$[$0 - 2], $$[$0 - 1], $$[$0]);
+                break;
+
+              case 36:
+                this.$ = [ $$[$0] ];
+                break;
+
+              case 37:
+                this.$ = $$[$0 - 2], this.$.push($$[$0]);
+                break;
+
+              case 38:
+                this.$ = yy.parser.yy.getActor(Diagram.unescape($$[$0]));
+                break;
+
+              case 39:
+                this.$ = yy.parser.yy.getActorWithAlias(Diagram.unescape($$[$0]));
+                break;
+
+              case 42:
+                this.$ = {
+                    linetype: $$[$0 - 1],
+                    headarrowtype: $$[$0]
+                };
+                break;
+
+              case 43:
+                this.$ = {
+                    linetype: $$[$0],
+                    tailarrowtype: Diagram.flipArrowType($$[$0 - 1])
+                };
+                break;
+
+              case 44:
+                this.$ = {
+                    linetype: $$[$0 - 1],
+                    tailarrowtype: Diagram.flipArrowType($$[$0 - 2]),
+                    headarrowtype: $$[$0]
+                };
+                break;
+
+              case 45:
+                this.$ = {
+                    linetype: $$[$0]
+                };
+                break;
+
+              case 46:
+                this.$ = Diagram.LINETYPE.SOLID;
+                break;
+
+              case 47:
+                this.$ = Diagram.LINETYPE.DOTTED;
+                break;
+
+              case 48:
+                this.$ = Diagram.ARROWTYPE.FILLED;
+                break;
+
+              case 49:
+                this.$ = Diagram.ARROWTYPE.OPEN;
+                break;
+
+              case 50:
                 this.$ = Diagram.unescape($$[$0].substring(1));
+                break;
+
+              case 51:
+                this.$ = new Diagram.Style($$[$0 - 2], $$[$0 - 1], $$[$0]);
+                break;
+
+              case 52:
+                this.$ = new Diagram.Style(void 0, $$[$0 - 1], $$[$0]);
+                break;
+
+              case 53:
+                this.$ = "Note";
+                break;
+
+              case 54:
+                this.$ = "Signal";
+                break;
+
+              case 55:
+                this.$ = "MinWidth";
+                break;
+
+              case 56:
+                this.$ = "Space";
+                break;
+
+              case 57:
+                this.$ = "GroupTitle";
+                break;
+
+              case 58:
+                this.$ = "GroupBox";
+                break;
+
+              case 59:
+                this.$ = "Title";
+                break;
+
+              case 60:
+                this.$ = "Participant";
+                break;
+
+              case 61:
+                this.$ = "font-family";
+                break;
+
+              case 62:
+                this.$ = "font-weight";
+                break;
+
+              case 63:
+                this.$ = "font-size";
+                break;
+
+              case 64:
+                this.$ = "stroke";
+                break;
+
+              case 65:
+                this.$ = "stroke-width";
+                break;
+
+              case 66:
+                this.$ = "fill";
+                break;
+
+              case 67:
+                this.$ = "font-color";
+                break;
+
+              case 68:
+                this.$ = "color";
+                break;
+
+              case 69:
+                this.$ = "css-class";
             }
         },
         table: [ o($V0, [ 2, 2 ], {
@@ -364,87 +857,226 @@ var parser = function() {
             4: 2
         }), {
             1: [ 3 ]
-        }, {
-            5: [ 1, 3 ],
+        }, o([ 25, 28, 29, 30, 31, 36, 37, 38, 46, 53 ], $V1, {
             6: 4,
             7: 5,
+            13: 9,
+            24: 10,
+            5: [ 1, 3 ],
             8: [ 1, 6 ],
             9: [ 1, 7 ],
-            11: 8,
-            12: 9,
-            13: [ 1, 10 ],
-            15: [ 1, 12 ],
-            17: 11,
-            24: $V1
-        }, {
+            11: [ 1, 8 ]
+        }), {
             1: [ 2, 1 ]
         }, o($V0, [ 2, 3 ]), o($V0, [ 2, 4 ]), o($V0, [ 2, 5 ]), {
-            10: 14,
-            24: [ 1, 15 ]
-        }, o($V0, [ 2, 7 ]), o($V0, [ 2, 8 ]), {
-            14: 16,
-            31: $V2
+            10: 11,
+            37: $V2,
+            45: 12,
+            46: $V3
         }, {
-            23: 18,
-            25: 19,
-            27: [ 1, 20 ],
-            28: [ 1, 21 ]
+            12: 15,
+            52: $V4
+        }, o($V0, [ 2, 8 ]), o([ 5, 9, 11, 26 ], [ 2, 21 ], {
+            23: 17,
+            14: 18,
+            15: 20,
+            16: 21,
+            17: 22,
+            18: 23,
+            19: 24,
+            20: 25,
+            21: 26,
+            22: 27,
+            43: 28,
+            27: 35,
+            33: 37,
+            45: 39,
+            8: [ 1, 19 ],
+            25: $V5,
+            28: $V6,
+            29: [ 1, 32 ],
+            30: [ 1, 33 ],
+            31: [ 1, 29 ],
+            36: [ 1, 30 ],
+            37: $V2,
+            38: [ 1, 31 ],
+            46: $V3,
+            53: [ 1, 36 ]
+        }), o($V0, [ 2, 6 ]), o($V0, [ 2, 39 ]), o($V7, [ 2, 40 ]), o($V7, [ 2, 41 ]), o($V0, [ 2, 7 ]), o($V8, [ 2, 50 ]), o($V8, [ 2, 20 ]), o($V8, [ 2, 17 ]), o($V8, [ 2, 18 ]), o($V8, [ 2, 9 ]), o($V8, [ 2, 10 ]), o($V8, [ 2, 11 ]), o($V8, [ 2, 12 ]), o($V8, [ 2, 13 ]), o($V8, [ 2, 14 ]), o($V8, [ 2, 15 ]), o($V8, [ 2, 16 ]), {
+            39: $V9,
+            40: $Va,
+            44: 40,
+            47: 42,
+            48: 43,
+            49: $Vb,
+            50: $Vc,
+            51: $Vd
         }, {
-            16: 22,
-            18: [ 1, 23 ],
-            21: [ 1, 24 ],
-            22: [ 1, 25 ]
-        }, o([ 20, 27, 28, 31 ], [ 2, 17 ]), o($V0, [ 2, 6 ]), o($V0, [ 2, 18 ]), o($V0, [ 2, 9 ]), o($V0, [ 2, 25 ]), {
-            17: 26,
-            24: $V1
+            32: 48,
+            34: [ 1, 49 ],
+            41: [ 1, 50 ],
+            42: [ 1, 51 ]
         }, {
-            24: [ 2, 20 ],
-            26: 27,
-            29: [ 1, 28 ],
-            30: [ 1, 29 ]
-        }, o($V3, [ 2, 21 ]), o($V3, [ 2, 22 ]), {
-            17: 30,
-            24: $V1
+            37: [ 1, 52 ]
         }, {
-            17: 32,
-            19: 31,
-            24: $V1
+            33: 53,
+            37: $V2,
+            45: 39,
+            46: $V3
         }, {
-            24: [ 2, 14 ]
+            21: 54,
+            25: $V5,
+            27: 35,
+            28: $V6
         }, {
-            24: [ 2, 15 ]
+            21: 55,
+            25: $V5,
+            27: 35,
+            28: $V6
+        }, o($Ve, $V1, {
+            24: 10,
+            13: 56
+        }), {
+            25: [ 1, 57 ]
         }, {
-            14: 33,
-            31: $V2
+            9: [ 1, 67 ],
+            11: [ 1, 66 ],
+            31: [ 1, 60 ],
+            36: [ 1, 63 ],
+            38: [ 1, 62 ],
+            54: 58,
+            55: 59,
+            56: [ 1, 61 ],
+            57: [ 1, 64 ],
+            58: [ 1, 65 ],
+            59: $Vf,
+            60: $Vg,
+            61: $Vh,
+            62: $Vi,
+            63: $Vj,
+            64: $Vk,
+            65: $Vl,
+            66: $Vm,
+            67: $Vn
+        }, o($Vo, [ 2, 36 ]), {
+            12: 77,
+            52: $V4
+        }, o($Vo, [ 2, 38 ]), {
+            33: 37,
+            37: $V2,
+            43: 78,
+            45: 39,
+            46: $V3
         }, {
-            24: [ 2, 19 ]
+            33: 79,
+            37: $V2,
+            45: 39,
+            46: $V3
+        }, o($Vp, [ 2, 45 ], {
+            48: 80,
+            50: $Vc,
+            51: $Vd
+        }), {
+            39: $V9,
+            47: 81,
+            49: $Vb
+        }, o($Vq, [ 2, 46 ]), o($Vq, [ 2, 47 ]), o($Vr, [ 2, 48 ]), o($Vr, [ 2, 49 ]), {
+            33: 82,
+            37: $V2,
+            45: 39,
+            46: $V3
         }, {
-            24: [ 2, 23 ]
+            33: 84,
+            35: 83,
+            37: $V2,
+            45: 39,
+            46: $V3
+        }, o($Vp, [ 2, 33 ]), o($Vp, [ 2, 34 ]), o($V8, [ 2, 29 ]), {
+            39: [ 1, 85 ]
+        }, o($V8, [ 2, 25 ]), o($V8, [ 2, 26 ]), {
+            26: [ 1, 86 ]
+        }, o($Ve, $V1, {
+            24: 10,
+            13: 87
+        }), {
+            55: 88,
+            59: $Vf,
+            60: $Vg,
+            61: $Vh,
+            62: $Vi,
+            63: $Vj,
+            64: $Vk,
+            65: $Vl,
+            66: $Vm,
+            67: $Vn
         }, {
-            24: [ 2, 24 ]
+            12: 89,
+            52: $V4
+        }, o($Vs, [ 2, 53 ]), o($Vs, [ 2, 54 ]), o($Vs, [ 2, 55 ]), o($Vs, [ 2, 56 ]), o($Vs, [ 2, 57 ]), o($Vs, [ 2, 58 ]), o($Vs, [ 2, 59 ]), o($Vs, [ 2, 60 ]), {
+            52: [ 2, 61 ]
         }, {
-            14: 34,
-            31: $V2
+            52: [ 2, 62 ]
         }, {
-            14: 35,
-            31: $V2
+            52: [ 2, 63 ]
         }, {
-            20: [ 1, 36 ],
-            31: [ 2, 12 ]
-        }, o($V0, [ 2, 16 ]), o($V0, [ 2, 10 ]), o($V0, [ 2, 11 ]), {
-            17: 37,
-            24: $V1
+            52: [ 2, 64 ]
         }, {
-            31: [ 2, 13 ]
+            52: [ 2, 65 ]
+        }, {
+            52: [ 2, 66 ]
+        }, {
+            52: [ 2, 67 ]
+        }, {
+            52: [ 2, 68 ]
+        }, {
+            52: [ 2, 69 ]
+        }, {
+            25: [ 2, 24 ]
+        }, {
+            12: 90,
+            40: $Va,
+            52: $V4
+        }, o($Vo, [ 2, 37 ]), o($Vp, [ 2, 42 ]), o($Vp, [ 2, 43 ], {
+            48: 91,
+            50: $Vc,
+            51: $Vd
+        }), {
+            12: 92,
+            52: $V4
+        }, {
+            12: 93,
+            52: $V4
+        }, {
+            40: [ 1, 94 ],
+            52: [ 2, 31 ]
+        }, {
+            37: [ 1, 95 ]
+        }, o($V8, [ 2, 22 ]), {
+            26: [ 1, 96 ]
+        }, {
+            12: 97,
+            52: $V4
+        }, o($V8, [ 2, 52 ]), o($V8, [ 2, 35 ]), o($Vp, [ 2, 44 ]), o($V8, [ 2, 27 ]), o($V8, [ 2, 28 ]), {
+            33: 98,
+            37: $V2,
+            45: 39,
+            46: $V3
+        }, o($V8, [ 2, 30 ]), o($V8, [ 2, 23 ]), o($V8, [ 2, 51 ]), {
+            52: [ 2, 32 ]
         } ],
         defaultActions: {
             3: [ 2, 1 ],
-            24: [ 2, 14 ],
-            25: [ 2, 15 ],
-            27: [ 2, 19 ],
-            28: [ 2, 23 ],
-            29: [ 2, 24 ],
-            37: [ 2, 13 ]
+            68: [ 2, 61 ],
+            69: [ 2, 62 ],
+            70: [ 2, 63 ],
+            71: [ 2, 64 ],
+            72: [ 2, 65 ],
+            73: [ 2, 66 ],
+            74: [ 2, 67 ],
+            75: [ 2, 68 ],
+            76: [ 2, 69 ],
+            77: [ 2, 24 ],
+            98: [ 2, 32 ]
         },
         parseError: function(str, hash) {
             if (!hash.recoverable) throw new Error(str);
@@ -456,22 +1088,22 @@ var parser = function() {
                 return token = lexer.lex() || EOF, "number" != typeof token && (token = self.symbols_[token] || token), 
                 token;
             }
-            var self = this, stack = [ 0 ], vstack = [ null ], lstack = [], table = this.table, yytext = "", yylineno = 0, yyleng = 0, recovering = 0, TERROR = 2, EOF = 1, args = lstack.slice.call(arguments, 1), lexer = Object.create(this.lexer), sharedState = {
+            var self = this, stack = [ 0 ], vstack = [ null ], lstack = [], table = this.table, yytext = "", yylineno = 0, yyleng = 0, recovering = 0, EOF = 1, args = lstack.slice.call(arguments, 1), lexer = Object.create(this.lexer), sharedState = {
                 yy: {}
             };
             for (var k in this.yy) Object.prototype.hasOwnProperty.call(this.yy, k) && (sharedState.yy[k] = this.yy[k]);
             lexer.setInput(input, sharedState.yy), sharedState.yy.lexer = lexer, sharedState.yy.parser = this, 
-            "undefined" == typeof lexer.yylloc && (lexer.yylloc = {});
+            void 0 === lexer.yylloc && (lexer.yylloc = {});
             var yyloc = lexer.yylloc;
             lstack.push(yyloc);
             var ranges = lexer.options && lexer.options.ranges;
             "function" == typeof sharedState.yy.parseError ? this.parseError = sharedState.yy.parseError : this.parseError = Object.getPrototypeOf(this).parseError;
             for (var symbol, preErrorSymbol, state, action, r, p, len, newState, expected, yyval = {}; ;) {
-                if (state = stack[stack.length - 1], this.defaultActions[state] ? action = this.defaultActions[state] : (null !== symbol && "undefined" != typeof symbol || (symbol = lex()), 
-                action = table[state] && table[state][symbol]), "undefined" == typeof action || !action.length || !action[0]) {
+                if (state = stack[stack.length - 1], this.defaultActions[state] ? action = this.defaultActions[state] : (null !== symbol && void 0 !== symbol || (symbol = lex()), 
+                action = table[state] && table[state][symbol]), void 0 === action || !action.length || !action[0]) {
                     var errStr = "";
                     expected = [];
-                    for (p in table[state]) this.terminals_[p] && p > TERROR && expected.push("'" + this.terminals_[p] + "'");
+                    for (p in table[state]) this.terminals_[p] && p > 2 && expected.push("'" + this.terminals_[p] + "'");
                     errStr = lexer.showPosition ? "Parse error on line " + (yylineno + 1) + ":\n" + lexer.showPosition() + "\nExpecting " + expected.join(", ") + ", got '" + (this.terminals_[symbol] || symbol) + "'" : "Parse error on line " + (yylineno + 1) + ": Unexpected " + (symbol == EOF ? "end of input" : "'" + (this.terminals_[symbol] || symbol) + "'"), 
                     this.parseError(errStr, {
                         text: lexer.match,
@@ -497,8 +1129,7 @@ var parser = function() {
                         first_column: lstack[lstack.length - (len || 1)].first_column,
                         last_column: lstack[lstack.length - 1].last_column
                     }, ranges && (yyval._$.range = [ lstack[lstack.length - (len || 1)].range[0], lstack[lstack.length - 1].range[1] ]), 
-                    r = this.performAction.apply(yyval, [ yytext, yyleng, yylineno, sharedState.yy, action[1], vstack, lstack ].concat(args)), 
-                    "undefined" != typeof r) return r;
+                    void 0 !== (r = this.performAction.apply(yyval, [ yytext, yyleng, yylineno, sharedState.yy, action[1], vstack, lstack ].concat(args)))) return r;
                     len && (stack = stack.slice(0, -1 * len * 2), vstack = vstack.slice(0, -1 * len), 
                     lstack = lstack.slice(0, -1 * len)), stack.push(this.productions_[action[1]][0]), 
                     vstack.push(yyval.$), lstack.push(yyval._$), newState = table[stack[stack.length - 2]][stack[stack.length - 1]], 
@@ -512,7 +1143,7 @@ var parser = function() {
             return !0;
         }
     }, lexer = function() {
-        var lexer = {
+        return {
             EOF: 1,
             parseError: function(str, hash) {
                 if (!this.yy.parser) throw new Error(str);
@@ -532,9 +1163,8 @@ var parser = function() {
             // consumes and returns one char from the input
             input: function() {
                 var ch = this._input[0];
-                this.yytext += ch, this.yyleng++, this.offset++, this.match += ch, this.matched += ch;
-                var lines = ch.match(/(?:\r\n?|\n).*/g);
-                return lines ? (this.yylineno++, this.yylloc.last_line++) : this.yylloc.last_column++, 
+                return this.yytext += ch, this.yyleng++, this.offset++, this.match += ch, this.matched += ch, 
+                ch.match(/(?:\r\n?|\n).*/g) ? (this.yylineno++, this.yylloc.last_line++) : this.yylloc.last_column++, 
                 this.options.ranges && this.yylloc.range[1]++, this._input = this._input.slice(1), 
                 ch;
             },
@@ -634,10 +1264,9 @@ var parser = function() {
                 this._input || (this.done = !0);
                 var token, match, tempMatch, index;
                 this._more || (this.yytext = "", this.match = "");
-                for (var rules = this._currentRules(), i = 0; i < rules.length; i++) if (tempMatch = this._input.match(this.rules[rules[i]]), 
-                tempMatch && (!match || tempMatch[0].length > match[0].length)) {
+                for (var rules = this._currentRules(), i = 0; i < rules.length; i++) if ((tempMatch = this._input.match(this.rules[rules[i]])) && (!match || tempMatch[0].length > match[0].length)) {
                     if (match = tempMatch, index = i, this.options.backtrack_lexer) {
-                        if (token = this.test_match(tempMatch, rules[i]), token !== !1) return token;
+                        if (!1 !== (token = this.test_match(tempMatch, rules[i]))) return token;
                         if (this._backtrack) {
                             match = !1;
                             continue;
@@ -647,7 +1276,7 @@ var parser = function() {
                     }
                     if (!this.options.flex) break;
                 }
-                return match ? (token = this.test_match(match, rules[index]), token !== !1 && token) : "" === this._input ? this.EOF : this.parseError("Lexical error on line " + (this.yylineno + 1) + ". Unrecognized text.\n" + this.showPosition(), {
+                return match ? !1 !== (token = this.test_match(match, rules[index])) && token : "" === this._input ? this.EOF : this.parseError("Lexical error on line " + (this.yylineno + 1) + ". Unrecognized text.\n" + this.showPosition(), {
                     text: "",
                     token: null,
                     line: this.yylineno
@@ -656,7 +1285,7 @@ var parser = function() {
             // return next match that has a token
             lex: function() {
                 var r = this.next();
-                return r ? r : this.lex();
+                return r || this.lex();
             },
             // activates a new lexer condition state (pushes the new lexer condition state onto the condition stack)
             begin: function(condition) {
@@ -664,8 +1293,7 @@ var parser = function() {
             },
             // pop the previously active lexer condition state off the condition stack
             popState: function() {
-                var n = this.conditionStack.length - 1;
-                return n > 0 ? this.conditionStack.pop() : this.conditionStack[0];
+                return this.conditionStack.length - 1 > 0 ? this.conditionStack.pop() : this.conditionStack[0];
             },
             // produce the lexer rule set which is active for the currently active lexer condition state
             _currentRules: function() {
@@ -692,9 +1320,6 @@ var parser = function() {
                     return 8;
 
                   case 1:
-                    /* skip whitespace */
-                    break;
-
                   case 2:
                     /* skip comments */
                     break;
@@ -703,60 +1328,120 @@ var parser = function() {
                     return 9;
 
                   case 4:
-                    return 21;
+                    return 41;
 
                   case 5:
-                    return 22;
+                    return 42;
 
                   case 6:
-                    return 18;
+                    return 34;
 
                   case 7:
-                    return 15;
+                    return 56;
 
                   case 8:
-                    return 13;
-
-                  case 9:
-                    return 20;
-
-                  case 10:
-                    return 24;
-
-                  case 11:
-                    return 24;
-
-                  case 12:
-                    return 28;
-
-                  case 13:
-                    return 27;
-
-                  case 14:
-                    return 30;
-
-                  case 15:
-                    return 29;
-
-                  case 16:
                     return 31;
 
+                  case 9:
+                    return 29;
+
+                  case 10:
+                    return 30;
+
+                  case 11:
+                    return 28;
+
+                  case 12:
+                    return 11;
+
+                  case 13:
+                    return 36;
+
+                  case 14:
+                    return 38;
+
+                  case 15:
+                    return 57;
+
+                  case 16:
+                    return 58;
+
                   case 17:
-                    return 5;
+                    return 53;
 
                   case 18:
+                    return 59;
+
+                  case 19:
+                    return 60;
+
+                  case 20:
+                    return 61;
+
+                  case 21:
+                    return 65;
+
+                  case 22:
+                    return 62;
+
+                  case 23:
+                    return 63;
+
+                  case 24:
+                    return 64;
+
+                  case 25:
+                    return 66;
+
+                  case 26:
+                    return 67;
+
+                  case 27:
+                    return 40;
+
+                  case 28:
+                    return 25;
+
+                  case 29:
+                    return 26;
+
+                  case 30:
+                    return 37;
+
+                  case 31:
+                  case 32:
+                    return 46;
+
+                  case 33:
+                    return 49;
+
+                  case 34:
+                    return 39;
+
+                  case 35:
+                    return 51;
+
+                  case 36:
+                    return 50;
+
+                  case 37:
+                    return 52;
+
+                  case 38:
+                    return 5;
+
+                  case 39:
                     return "INVALID";
                 }
             },
-            rules: [ /^(?:[\r\n]+)/i, /^(?:\s+)/i, /^(?:#[^\r\n]*)/i, /^(?:participant\b)/i, /^(?:left of\b)/i, /^(?:right of\b)/i, /^(?:over\b)/i, /^(?:note\b)/i, /^(?:title\b)/i, /^(?:,)/i, /^(?:[^\->:,\r\n"]+)/i, /^(?:"[^"]+")/i, /^(?:--)/i, /^(?:-)/i, /^(?:>>)/i, /^(?:>)/i, /^(?:[^\r\n]+)/i, /^(?:$)/i, /^(?:.)/i ],
+            rules: [ /^(?:[\r\n]+)/i, /^(?:\s+)/i, /^(?:#[^\r\n]*)/i, /^(?:participant\b)/i, /^(?:left of\b)/i, /^(?:right of\b)/i, /^(?:over\b)/i, /^(?:signal\b)/i, /^(?:note\b)/i, /^(?:parallel\b)/i, /^(?:serial\b)/i, /^(?:group\b)/i, /^(?:title\b)/i, /^(?:space\b)/i, /^(?:minwidth\b)/i, /^(?:grouptitle\b)/i, /^(?:groupbox\b)/i, /^(?:style\b)/i, /^(?:font-family\b)/i, /^(?:font-weight\b)/i, /^(?:font-size\b)/i, /^(?:font-color\b)/i, /^(?:stroke\b)/i, /^(?:stroke-width\b)/i, /^(?:fill\b)/i, /^(?:color\b)/i, /^(?:css-class\b)/i, /^(?:,)/i, /^(?:\{)/i, /^(?:\})/i, /^(?:[0-9]+)/i, /^(?:[^\->:,\r\n"\{\}]+)/i, /^(?:"[^"]+")/i, /^(?:--)/i, /^(?:-)/i, /^(?:>>)/i, /^(?:>)/i, /^(?:[^\r\n\{\}]+)/i, /^(?:$)/i, /^(?:.)/i ],
             conditions: {
                 INITIAL: {
-                    rules: [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18 ],
+                    rules: [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39 ],
                     inclusive: !0
                 }
             }
         };
-        return lexer;
     }();
     return parser.lexer = lexer, Parser.prototype = parser, parser.Parser = Parser, 
     new Parser();
@@ -827,6 +1512,8 @@ var ACTOR_PADDING  = 10; // Padding inside a actor
 
 var SIGNAL_MARGIN  = 5; // Margin around a signal
 var SIGNAL_PADDING = 5; // Padding inside a signal
+var SIGNAL_SPACE_BELOW_TEXT = -8; // Space between text and signal line
+var SIGNAL_FORK_FROM_MAIN_LINE_VERTICAL_GAP = 17;
 
 var NOTE_MARGIN   = 10; // Margin around a note
 var NOTE_PADDING  = 5; // Padding inside a note
@@ -836,6 +1523,12 @@ var TITLE_MARGIN   = 0;
 var TITLE_PADDING  = 5;
 
 var SELF_SIGNAL_WIDTH = 20; // How far out a self signal goes
+
+var GROUP_TITLE_PADDING = 3;
+var GROUP_TITLE_BOTTOM_MARGIN = 6;
+var GROUP_BOX_HPADDING = 22;
+//var GROUP_BOX_VPADDING = 0;
+var GROUP_BOX_VMARGIN = 6;
 
 var PLACEMENT = Diagram.PLACEMENT;
 var LINETYPE  = Diagram.LINETYPE;
@@ -878,6 +1571,59 @@ function getCenterY(box) {
   return box.y + box.height / 2;
 }
 
+function MostLeftSignal(signals) {
+	var extrimum_val = Infinity;
+	var extrimum_signal = undefined;
+	_.each(signals, _.bind(function(s) {
+		if (s.x < extrimum_val) { extrimum_val = s.x; extrimum_signal = s; }
+	}));
+	return extrimum_signal;
+}
+
+function MostRightSignal(signals) {
+	var extrimum_val = -Infinity;
+	var extrimum_signal = undefined;
+	_.each(signals, _.bind(function(s) {
+		if (s.x > extrimum_val) { extrimum_val = s.x; extrimum_signal = s; }
+	}));
+	return extrimum_signal;
+}
+
+function merge2SortedArraysWithIndicators(array1, array2, comparator, itemKey, array1IndicatorKey, array2IndicatorKey) {
+	var itemKey = itemKey || 'item';
+	var array1IndicatorKey = array1IndicatorKey || 'ind1';
+	var array2IndicatorKey = array2IndicatorKey || 'ind2';
+	var comparator = comparator || (function(a,b) { return (a-b); });
+	var mergedArray = [];
+	for (var i = 0, j = 0;;) {
+		var item = {};
+		if (i < array1.length && j < array2.length) {
+			var diff = comparator(array1[i], array2[j]);
+			if (diff == 0) {
+				item[itemKey] = array1[i]; item[array1IndicatorKey] = true; item[array2IndicatorKey] = true;
+				i++; j++;
+			} else if (diff < 0) {
+				item[itemKey] = array1[i]; item[array1IndicatorKey] = true; item[array2IndicatorKey] = false;
+				i++;
+			} else {
+				item[itemKey] = array2[j]; item[array1IndicatorKey] = false; item[array2IndicatorKey] = true;
+				j++;
+			}
+		} else if (i < array1.length) {
+			item[itemKey] = array1[i]; item[array1IndicatorKey] = true; item[array2IndicatorKey] = false;
+			i++;
+		} else if (j < array2.length) {
+			item[itemKey] = array2[j]; item[array1IndicatorKey] = false; item[array2IndicatorKey] = true;
+			j++;
+		} else {
+			break;
+		}
+		mergedArray.push(item);
+	}
+	return mergedArray;
+}
+	
+
 /******************
  * SVG Path extras
  ******************/
@@ -893,10 +1639,11 @@ function clamp(x, min, max) {
 }
 
 function wobble(x1, y1, x2, y2) {
-  assert(_.all([x1,x2,y1,y2], _.isFinite), 'x1,x2,y1,y2 must be numeric');
+  assert(_.every([x1,x2,y1,y2], _.isFinite), 'x1,x2,y1,y2 must be numeric');
 
-  // Wobble no more than 1/25 of the line length
-  var factor = Math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)) / 25;
+  // Wobble no more than 1/40 of the line length
+  var factor = Math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)) / 40;
+  factor = Math.min(factor, 5);
 
   // Distance along line where the control points are
   // Clamp between 20% and 80% so any arrow heads aren't angled too much
@@ -925,7 +1672,7 @@ function wobble(x1, y1, x2, y2) {
  * Draws a wobbly (hand drawn) rect
  */
 function handRect(x, y, w, h) {
-  assert(_.all([x, y, w, h], _.isFinite), 'x, y, w, h must be numeric');
+  assert(_.every([x, y, w, h], _.isFinite), 'x, y, w, h must be numeric');
   return 'M' + x + ',' + y +
    wobble(x, y, x + w, y) +
    wobble(x + w, y, x + w, y + h) +
@@ -937,7 +1684,7 @@ function handRect(x, y, w, h) {
  * Draws a wobbly (hand drawn) line
  */
 function handLine(x1, y1, x2, y2) {
-  assert(_.all([x1,x2,y1,y2], _.isFinite), 'x1,x2,y1,y2 must be numeric');
+  assert(_.every([x1,x2,y1,y2], _.isFinite), 'x1,x2,y1,y2 must be numeric');
   return 'M' + x1.toFixed(1) + ',' + y1.toFixed(1) + wobble(x1, y1, x2, y2);
 }
 
@@ -984,11 +1731,26 @@ _.extend(BaseTheme.prototype, {
 
     diagram.width  = 0; // min width
     diagram.height = 0; // min height
+	
+	this.diagram.default_styles = { 
+		'font-family': this.font_['font-family'],
+		'font-size': this.font_['font-size'],
+		'font-width': this.font_['font-width'],
+		'color': this.font_['color'],
+		
+		'stroke': '#000000',
+		'stroke-width': 2,
+		'fill': 'none',
+		
+		'Note__fill': '#fff',
+		'GroupTitle__fill': '#fff',
+	};
 
     // Setup some layout stuff
     if (diagram.title) {
       var title = this.title_ = {};
-      var bb = this.textBBox(diagram.title, font);
+      var font = this.diagram.root_block.getFontStyle('Title', this.diagram.default_styles);
+	  var bb = this.textBBox(diagram.title, font);
       title.textBB = bb;
       title.message = diagram.title;
 
@@ -1001,7 +1763,8 @@ _.extend(BaseTheme.prototype, {
       diagram.height += title.height;
     }
 
-    _.each(actors, function(a) {
+    _.each(actors, _.bind(function(a) {
+      var font = this.diagram.root_block.getFontStyle('Actor', this.diagram.default_styles);
       var bb = this.textBBox(a.name, font);
       a.textBB = bb;
 
@@ -1012,7 +1775,7 @@ _.extend(BaseTheme.prototype, {
       a.distances = [];
       a.paddingRight = 0;
       this.actorsHeight_ = Math.max(a.height, this.actorsHeight_);
-    }, this);
+    }, this));
 
     function actorEnsureDistance(a, b, d) {
       assert(a < b, 'a must be less than or equal to b');
@@ -1030,34 +1793,42 @@ _.extend(BaseTheme.prototype, {
         a.distances[b] = Math.max(d, a.distances[b] ? a.distances[b] : 0);
       }
     }
-
-    _.each(signals, function(s) {
+	
+    _.each(signals, _.bind(function(s) {
       // Indexes of the left and right actors involved
       var a;
       var b;
 
-      var bb = this.textBBox(s.message, font);
+      var font = s.parentBlock.getFontStyle(s.type, this.diagram.default_styles);
+	  var bb = this.textBBox(s.message, font);
 
-      //var bb = t.attr("text", s.message).getBBox();
       s.textBB = bb;
       s.width   = bb.width;
       s.height  = bb.height;
+	  s.textHeight = bb.height;
+	  s.textWidth = bb.width;
 
       var extraWidth = 0;
 
       if (s.type == 'Signal') {
 
         s.width  += (SIGNAL_MARGIN + SIGNAL_PADDING) * 2;
-        s.height += (SIGNAL_MARGIN + SIGNAL_PADDING) * 2;
+        s.height += (SIGNAL_MARGIN + SIGNAL_PADDING) * 2 + SIGNAL_SPACE_BELOW_TEXT;
+		
+		if (s.useFeedArrows()) s.height += SIGNAL_FORK_FROM_MAIN_LINE_VERTICAL_GAP;
+		if (s.targetActors.length > 1) s.height += SIGNAL_FORK_FROM_MAIN_LINE_VERTICAL_GAP;
+		
+		if (s.targetActors) {
+		}
 
-        if (s.isSelf()) {
+        if (s.isOnlySelf()) {
           // TODO Self signals need a min height
-          a = s.actorA.index;
+          a = s.sourceActors[0].index;
           b = a + 1;
           s.width += SELF_SIGNAL_WIDTH;
         } else {
-          a = Math.min(s.actorA.index, s.actorB.index);
-          b = Math.max(s.actorA.index, s.actorB.index);
+          a = s.actorsMinIdx();
+          b = s.actorsMaxIdx();
         }
 
       } else if (s.type == 'Note') {
@@ -1086,17 +1857,40 @@ _.extend(BaseTheme.prototype, {
           a = s.actor.index;
           actorEnsureDistance(a - 1, a, s.width / 2);
           actorEnsureDistance(a, a + 1, s.width / 2);
-          this.signalsHeight_ += s.height;
+          
+		  s.y_offset = s.parentBlock.getYOffsetForNextSon(s);
+		  s.parentBlock.updateHeight();
 
           return; // Bail out early
         }
-      } else {
+      } else if (s.type == 'Space') {
+	    s.height = s.spaceSize;
+	  } else if (s.type == 'MinWidth') {
+	    s.height = 0;
+		a = s.actor.index;
+		actorEnsureDistance(a - 1, a, s.minWidth / 2);
+		actorEnsureDistance(a, a + 1, s.minWidth / 2);
+	  } else if (s.type == 'GroupTitle') {
+	    s.width  += (GROUP_TITLE_PADDING) * 2;
+        s.height += (GROUP_TITLE_PADDING) * 2 + GROUP_TITLE_BOTTOM_MARGIN;
+	  } else if (s.type == 'GroupBox') {
+	    s.width = 0; // will be determined in the drawing
+		// TODO: get min+max actors of parentBlock and ensure left+right paddings for them.
+        s.height = s.parentBlock.height + 2*GROUP_BOX_VMARGIN; // TODO: maybe bottom padding?
+	  } else {
         throw new Error('Unhandled signal type:' + s.type);
       }
 
-      actorEnsureDistance(a, b, s.width + extraWidth);
-      this.signalsHeight_ += s.height;
-    }, this);
+	  if (s.type == 'Signal' || s.type == 'Note') {
+		actorEnsureDistance(a, b, s.width + extraWidth);
+	  }
+	  
+	  s.y_offset = s.parentBlock.getYOffsetForNextSon(s);
+	  s.parentBlock.updateHeight();
+      
+    }, this));
+	
+	this.signalsHeight_ += diagram.root_block.height;
 
     // Re-jig the positions
     var actorsX = 0;
@@ -1117,7 +1911,7 @@ _.extend(BaseTheme.prototype, {
       });
 
       actorsX = a.x + a.width + a.paddingRight;
-    }, this);
+    });
 
     diagram.width = Math.max(actorsX, diagram.width);
 
@@ -1141,7 +1935,8 @@ _.extend(BaseTheme.prototype, {
 
   drawActors: function(offsetY) {
     var y = offsetY;
-    _.each(this.diagram.actors, function(a) {
+	var style = this.diagram.root_block.getDrawingStyle('Participant', this.diagram.default_styles);
+    _.each(this.diagram.actors, _.bind(function(a) {
       // Top box
       this.drawActor(a, y, this.actorsHeight_);
 
@@ -1152,75 +1947,224 @@ _.extend(BaseTheme.prototype, {
       var aX = getCenterX(a);
       this.drawLine(
        aX, y + this.actorsHeight_ - ACTOR_MARGIN,
-       aX, y + this.actorsHeight_ + ACTOR_MARGIN + this.signalsHeight_);
-    }, this);
+       aX, y + this.actorsHeight_ + ACTOR_MARGIN + this.signalsHeight_).attr(style);
+    }, this));
   },
 
   drawActor: function(actor, offsetY, height) {
     actor.y      = offsetY;
     actor.height = height;
-    this.drawTextBox(actor, actor.name, ACTOR_MARGIN, ACTOR_PADDING, this.font_, ALIGN_CENTER);
+	var font = this.diagram.root_block.getFontStyle('Participant', this.diagram.default_styles);
+	var rectStyle = this.diagram.root_block.getDrawingStyle('Participant', this.diagram.default_styles);
+    this.drawTextBox(actor, actor.name, ACTOR_MARGIN, ACTOR_PADDING, font, ALIGN_CENTER, rectStyle);
   },
 
   drawSignals: function(offsetY) {
-    var y = offsetY;
-    _.each(this.diagram.signals, function(s) {
+    _.each(this.diagram.signals, _.bind(function(s) {
+	  var y = s.y_offset + offsetY;
+	  
       // TODO Add debug mode, that draws padding/margin box
       if (s.type == 'Signal') {
-        if (s.isSelf()) {
+        if (s.isOnlySelf()) {
           this.drawSelfSignal(s, y);
         } else {
           this.drawSignal(s, y);
         }
-
       } else if (s.type == 'Note') {
         this.drawNote(s, y);
-      }
-
-      y += s.height;
-    }, this);
+      } else if (s.type == 'Space') {
+        /* Do nothing.. */
+      } else if (s.type == 'GroupBox') {
+		this.drawGroupBox(s, y);
+	  }
+	  
+    }, this));
   },
 
+  drawGroupBox: function(groupBox, top_y) {
+	  var block = groupBox.parentBlock;
+	  var groupTitle = block.groupTitleElement;
+	  var minX = block.getMinX() - GROUP_BOX_HPADDING;
+	  if (!isFinite(minX) || minX < 0) minX = 0;
+	  var maxX = block.getMaxX();
+	  if (!isFinite(maxX)) maxX = this.diagram.width;
+	  top_y += GROUP_BOX_VMARGIN;
+	  var bottom_y = top_y + block.height - 2*GROUP_BOX_VMARGIN;
+	  var titleWidth = groupTitle.width;
+	  var titleHeight = groupTitle.textHeight + 2*GROUP_TITLE_PADDING;
+	  maxX = Math.max(maxX, minX+titleWidth);
+	  maxX += GROUP_BOX_HPADDING;
+	  var linetype = Diagram.LINETYPE.SOLID; // TODO: specified in block?
+	  
+	  // TODO: add margins to box?
+	  
+	  var style = block.getDrawingStyle('GroupTitle', this.diagram.default_styles);
+	  this.drawRect(minX, top_y, titleWidth, titleHeight).attr(style);
+	  
+	  var style = block.getDrawingStyle('GroupBox', this.diagram.default_styles);
+	  this.drawLine(minX+titleWidth, top_y,             maxX,            top_y,              linetype).attr(style);
+	  this.drawLine(minX,            top_y+titleHeight, minX,            bottom_y,           linetype).attr(style);
+	  this.drawLine(maxX,            top_y,             maxX,            bottom_y,           linetype).attr(style);
+	  this.drawLine(minX,            bottom_y,          maxX,            bottom_y,           linetype).attr(style);
+	  
+	  var font = block.getFontStyle('GroupTitle', this.diagram.default_styles);
+	  this.drawText(minX+GROUP_TITLE_PADDING, top_y+GROUP_TITLE_PADDING, groupTitle.message, font, ALIGN_LEFT);
+  },
+	  
   drawSelfSignal: function(signal, offsetY) {
-      assert(signal.isSelf(), 'signal must be a self signal');
+      assert(signal.isOnlySelf(), 'signal must be a self signal');
 
-      var textBB = signal.textBB;
-      var aX = getCenterX(signal.actorA);
+      var block = signal.parentBlock;
+	  var textBB = signal.textBB;
+      var aX = getCenterX(signal.sourceActors[0]);
 
       var x = aX + SELF_SIGNAL_WIDTH + SIGNAL_PADDING;
       var y = offsetY + SIGNAL_PADDING + signal.height / 2 + textBB.y;
 
-      this.drawText(x, y, signal.message, this.font_, ALIGN_LEFT);
+	  var font = block.getFontStyle('Signal', this.diagram.default_styles);
+      this.drawText(x, y, signal.message, font, ALIGN_LEFT);
 
       var y1 = offsetY + SIGNAL_MARGIN + SIGNAL_PADDING;
       var y2 = y1 + signal.height - 2 * SIGNAL_MARGIN - SIGNAL_PADDING;
 
       // Draw three lines, the last one with a arrow
-      this.drawLine(aX, y1, aX + SELF_SIGNAL_WIDTH, y1, signal.linetype);
-      this.drawLine(aX + SELF_SIGNAL_WIDTH, y1, aX + SELF_SIGNAL_WIDTH, y2, signal.linetype);
-      this.drawLine(aX + SELF_SIGNAL_WIDTH, y2, aX, y2, signal.linetype, signal.arrowtype);
+	  var style = block.getDrawingStyle('Signal', this.diagram.default_styles);
+      this.drawLine(aX, y1, aX + SELF_SIGNAL_WIDTH, y1, signal.linetype).attr(style);
+      this.drawLine(aX + SELF_SIGNAL_WIDTH, y1, aX + SELF_SIGNAL_WIDTH, y2, signal.linetype).attr(style);
+      this.drawLine(aX + SELF_SIGNAL_WIDTH, y2, aX, y2, signal.linetype, signal.headarrowtype).attr(style);
+	  
+	  signal.minX = aX;
+	  signal.maxX = x + signal.textWidth;
     },
 
   drawSignal: function(signal, offsetY) {
-    var aX = getCenterX(signal.actorA);
-    var bX = getCenterX(signal.actorB);
-
-    // Mid point between actors
-    var x = (bX - aX) / 2 + aX;
-    var y = offsetY + SIGNAL_MARGIN + 2 * SIGNAL_PADDING;
-
-    // Draw the text in the middle of the signal
-    this.drawText(x, y, signal.message, this.font_, ALIGN_CENTER);
-
-    // Draw the line along the bottom of the signal
-    y = offsetY + signal.height - SIGNAL_MARGIN - SIGNAL_PADDING;
-    this.drawLine(aX, y, bX, y, signal.linetype, signal.arrowtype);
+	var block = signal.parentBlock;
+	
+	// TODO: fix these ys values and give them meaningful names.
+	var text_y = offsetY + SIGNAL_MARGIN + SIGNAL_PADDING;
+	var upper_y = text_y + signal.textHeight + SIGNAL_SPACE_BELOW_TEXT; // y of signal line
+	var line_y = upper_y + ((signal.useFeedArrows()) ? SIGNAL_FORK_FROM_MAIN_LINE_VERTICAL_GAP : 0);
+	var bottom_y = line_y + SIGNAL_FORK_FROM_MAIN_LINE_VERTICAL_GAP; // y of fork to a target actor in the way (below signal-line).
+	
+	// Draw the text in the middle of the signal
+	var mid_x = signal.mid_center_x();
+	//console.log(signal.message + "  :  y=" + text_y); // TODO: inspect why it's not really drawing the text on text_y.
+	var font = block.getFontStyle('Signal', this.diagram.default_styles);
+	this.drawText(mid_x, text_y, signal.message, font, ALIGN_CENTER);
+	
+	// Draw forked-signal-line to multiple target actors.
+	// The main signal-line reaches farthest target actor.
+	// If there is any other target actor on the way, draw a fork to it below the main signal-line.
+	
+	var style = block.getDrawingStyle('Signal', this.diagram.default_styles);
+	
+	var actorsComparator = function(a, b) { return a.index - b.index; };
+	var sortedSourceActors = _.uniq(signal.sourceActors.sort(actorsComparator), true);
+	var sortedTargetActors = _.uniq(signal.targetActors.sort(actorsComparator), true);
+	var mostRightSourceActor = sortedSourceActors[sortedSourceActors.length-1];
+	var mostRightTargetActor = sortedTargetActors[sortedTargetActors.length-1];
+	var actors = merge2SortedArraysWithIndicators(sortedSourceActors, sortedTargetActors, actorsComparator, 'actor', 'isSource', 'isTarget');
+	
+	var isSingleSource = signal.isSingleSource();
+	var useFeedArrows = signal.useFeedArrows();
+	
+	var mostLeftActorIsSource = actors[0].isSource;
+	var mostRightActorIsSource = actors[actors.length-1].isSource;
+	
+	var curSignalDirection = 'RTL';
+	var mainSignalDirection = ((!mostLeftActorIsSource && mostRightActorIsSource) ? 'RTL' : 'LTR');
+	for (var i = 0; i < actors.length; ++i) {
+		var curItem = actors[i];
+		var isMostLeft = (i == 0);
+		var isMostRight = (i == actors.length-1);
+		var isExtrimum = (isMostLeft || isMostRight);
+		
+		// Once a source actor is seen for the first time, the main signal direction is used.
+		if (curItem.isSource) curSignalDirection = mainSignalDirection;
+		// From now on all actors are targets, hence signal is directed from left to right.
+		if (curItem.actor.index > mostRightSourceActor.index) curSignalDirection = 'LTR'; //TODO: really want this?
+		// From now on all actors are sources, hence signal is directed from right to left.
+		if (curItem.actor.index > mostRightTargetActor.index) curSignalDirection = 'RTL'; //TODO: really want this?
+		
+		var curX = curItem.actor.getCenterX();
+		var justAfterCurX = curX + SELF_SIGNAL_WIDTH;
+		var justBeforeCurX = curX - SELF_SIGNAL_WIDTH;
+		
+		// If there is an actor to the right of me - draw a segmented line to it.
+		if (i < actors.length - 1) {
+			var nextItem = actors[i+1];
+			var nextX = nextItem.actor.getCenterX();
+			var justBeforeNextX = nextX - SELF_SIGNAL_WIDTH;
+			
+			this.drawLine(justAfterCurX, line_y, justBeforeNextX, line_y, signal.linetype).attr(style);
+		}
+		
+		// Draw little segments on the main signal near the current actor.
+		if (!isMostLeft) {
+			var headarrowtype = undefined;
+			if (isMostRight && curItem.isTarget && (curSignalDirection == 'LTR')) headarrowtype = signal.headarrowtype;
+			//if (isMostRight && !curItem.isTarget && curItem.isSource && !isSingleSource) headarrowtype = Diagram.ARROWTYPE.DOT;
+			var tailarrowtype = undefined;
+			if (isExtrimum && !curItem.isTarget && curItem.isSource) tailarrowtype = signal.tailarrowtype;
+			
+			this.drawLine(justBeforeCurX, line_y, curX, line_y, signal.linetype, headarrowtype, tailarrowtype).attr(style);
+		}
+		if (!isMostRight) {
+			var headarrowtype = undefined;
+			if (isMostLeft && curItem.isTarget && (curSignalDirection == 'RTL')) headarrowtype = signal.headarrowtype;
+			//if (isMostLeft && !curItem.isTarget && curItem.isSource && !isSingleSource) headarrowtype = Diagram.ARROWTYPE.DOT;
+			//if (!isMostLeft && isSingleSource && curItem.isSource) headarrowtype = Diagram.ARROWTYPE.DOT;
+			var tailarrowtype = undefined;
+			if (isExtrimum && !curItem.isTarget && curItem.isSource) tailarrowtype = signal.tailarrowtype;
+			
+			this.drawLine(justAfterCurX, line_y, curX, line_y, signal.linetype, headarrowtype, tailarrowtype).attr(style);
+		}
+		
+		// TODO: maybe consider some different preferences.
+		var drawFeedFromLeft = curItem.isSource && !isMostLeft && useFeedArrows && curSignalDirection == 'RTL';
+		var drawFeedFromRight = curItem.isSource && !isMostRight && useFeedArrows && curSignalDirection == 'LTR';
+		var drawReceiveFromLeft = curItem.isTarget && !isMostLeft && ((curSignalDirection == 'LTR' && !isMostRight) || (curSignalDirection == 'RTL' && isMostRight));
+		var drawReceiveFromRight = curItem.isTarget && !isMostRight && ((curSignalDirection == 'RTL' && !isMostLeft) || (curSignalDirection == 'LTR' && isMostLeft));
+		
+		// Draw arrows to&from current actor when needed.
+		if (drawReceiveFromLeft) {
+			// Draw receive from left --------
+			//                           |
+			//                           \-->
+			this.drawLine(justBeforeCurX, line_y, justBeforeCurX, bottom_y, signal.linetype).attr(style);
+			this.drawLine(justBeforeCurX, bottom_y, curX, bottom_y, signal.linetype, signal.headarrowtype).attr(style);
+		}
+		if (drawFeedFromRight) {
+			// Draw feed from right   ---
+			//                          \/
+			//                       --------
+			this.drawLine(curX, upper_y, justAfterCurX, upper_y, signal.linetype).attr(style);
+			this.drawLine(justAfterCurX, upper_y, justAfterCurX, line_y, signal.linetype, signal.headarrowtype).attr(style);
+		}
+		if (drawReceiveFromRight) {
+			// Draw receive from right --------
+			//                             |
+			//                          <--/
+			this.drawLine(justAfterCurX, line_y, justAfterCurX, bottom_y, signal.linetype).attr(style);
+			this.drawLine(justAfterCurX, bottom_y, curX, bottom_y, signal.linetype, signal.headarrowtype).attr(style);
+		}
+		if (drawFeedFromLeft) {
+			// Draw feed from left    ---
+			//                       \/
+			//                    --------
+			this.drawLine(curX, upper_y, justBeforeCurX, upper_y, signal.linetype).attr(style);
+			this.drawLine(justBeforeCurX, upper_y, justBeforeCurX, line_y, signal.linetype, signal.headarrowtype).attr(style);
+		}
+	}
   },
 
   drawNote: function(note, offsetY) {
+	var block = note.parentBlock;
+	var font = block.getFontStyle('Note', this.diagram.default_styles);
+	var rectStyle = block.getDrawingStyle('Note', this.diagram.default_styles);
     note.y = offsetY;
-    var actorA = note.hasManyActors() ? note.actor[0] : note.actor;
-    var aX = getCenterX(actorA);
+    var sourceActor = note.hasManyActors() ? note.actor[0] : note.actor;
+    var aX = getCenterX(sourceActor);
     switch (note.placement) {
     case PLACEMENT.RIGHTOF:
       note.x = aX + ACTOR_MARGIN;
@@ -1240,21 +2184,24 @@ _.extend(BaseTheme.prototype, {
     break;
     default:
       throw new Error('Unhandled note placement: ' + note.placement);
-  }
-    return this.drawTextBox(note, note.message, NOTE_MARGIN, NOTE_PADDING, this.font_, ALIGN_LEFT);
+	}
+	note.minX = note.x;
+	note.maxX = note.x + note.width;
+    return this.drawTextBox(note, note.message, NOTE_MARGIN, NOTE_PADDING, font, ALIGN_LEFT, rectStyle);
   },
 
   /**
    * Draw text surrounded by a box
    */
-  drawTextBox: function(box, text, margin, padding, font, align) {
+  drawTextBox: function(box, text, margin, padding, font, align, rectAttr) {
     var x = box.x + margin;
     var y = box.y + margin;
     var w = box.width  - 2 * margin;
     var h = box.height - 2 * margin;
 
     // Draw inner box
-    this.drawRect(x, y, w, h);
+    var rect = this.drawRect(x, y, w, h);
+	if (rectAttr !== undefined) rect.attr(rectAttr);
 
     // Draw text (in the center)
     if (align == ALIGN_CENTER) {
@@ -1295,7 +2242,7 @@ if (typeof Raphael != 'undefined') {
    * Raphaël extras
    ******************/
   Raphael.fn.line = function(x1, y1, x2, y2) {
-    assert(_.all([x1,x2,y1,y2], _.isFinite), 'x1,x2,y1,y2 must be numeric');
+    assert(_.every([x1,x2,y1,y2], _.isFinite), 'x1,x2,y1,y2 must be numeric');
     return this.path('M{0},{1} L{2},{3}', x1, y1, x2, y2);
   };
 
@@ -1354,8 +2301,9 @@ if (typeof Raphael != 'undefined') {
      * Strip whitespace from each newline
      */
     cleanText: function(text) {
-      text = _.invoke(text.split('\n'), 'trim');
-      return text.join('\n');
+      return text.split('\n').map(function(x) {
+        return x.trim();
+      }).join('\n');
     },
 
     /**
