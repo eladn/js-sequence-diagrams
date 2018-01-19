@@ -25,12 +25,12 @@ function assertSingleArrow(d, arrowtype, linetype, actorA, actorB, message) {
 
   equal(d.signals.length, 1, 'Correct signals count');
   equal(d.signals[0].type, 'Signal', 'Correct signal type');
-  equal(d.signals[0].actorA, a, 'Actors A');
-  equal(d.signals[0].actorB, b, 'Actors B');
+  equal(d.signals[0].sourceActors[0], a, 'Actors A');
+  equal(d.signals[0].targetActors[0], b, 'Actors B');
 
   equal(d.signals[0].message, message, 'Signal message');
 
-  equal(d.signals[0].arrowtype, arrowtype, 'Arrowhead type');
+  equal(d.signals[0].headarrowtype, arrowtype, 'Arrowhead type');
   equal(d.signals[0].linetype, linetype, 'Line type');
 }
 
@@ -203,5 +203,5 @@ test('API', function() {
   ok(typeof d.getActor == 'function');
   ok(typeof d.getActorWithAlias == 'function');
   ok(typeof d.setTitle == 'function');
-  ok(typeof d.addSignal == 'function');
+  ok(typeof d.addElement == 'function');
 });

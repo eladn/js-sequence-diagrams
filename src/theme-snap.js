@@ -30,8 +30,10 @@ if (typeof Snap != 'undefined') {
   var SnapTheme = function(diagram, options, resume) {
         _.defaults(options, {
             'css-class': 'simple',
-            'font-size': 16,
-            'font-family': 'Andale Mono, monospace'
+            'font-size': 20,
+            'font-family': 'Andale Mono, monospace',
+			'font-weight': 450,
+			'color': '#000000'
           });
 
         this.init(diagram, options, resume);
@@ -46,7 +48,9 @@ if (typeof Snap != 'undefined') {
             this.cssClass_ = options['css-class'] || undefined;
             this.font_ = {
                 'font-size': options['font-size'],
-                'font-family': options['font-family']
+                'font-family': options['font-family'],
+				'font-weight': options['font-weight'],
+				'color': options['color']
               };
 
             var a = this.arrowTypes_ = {};
@@ -121,10 +125,23 @@ if (typeof Snap != 'undefined') {
       var arrow = this.paper_.path('M 0 0 L 5 2.5 L 0 5 z');
       a[ARROWTYPE.FILLED] = arrow.marker(0, 0, 5, 5, 5, 2.5)
        .attr({id: 'markerArrowBlock'});
+	   
+	  arrow = this.paper_.path('M 5 0 L 0 2.5 L 5 5 z');
+      a[ARROWTYPE.FILLED_INVERTED] = arrow.marker(0, 0, 5, 5, 5, 2.5)
+       .attr({id: 'markerArrowBlockInverted'});
 
       arrow = this.paper_.path('M 9.6,8 1.92,16 0,13.7 5.76,8 0,2.286 1.92,0 9.6,8 z');
       a[ARROWTYPE.OPEN] = arrow.marker(0, 0, 9.6, 16, 9.6, 8)
        .attr({markerWidth: '4', id: 'markerArrowOpen'});
+	   
+	  arrow = this.paper_.path('M 0,8 7.68,16 9.6,13.7 3.84,8 9.6,2.286 7.68,0 0,8 z');
+      a[ARROWTYPE.OPEN_INVERTED] = arrow.marker(0, 0, 9.6, 16, 9.6, 8)
+       .attr({markerWidth: '4', id: 'markerArrowOpenInverted'});
+	   
+      //arrow = this.paper_.path("M 10 0 20 10 10 20 0 10 z");
+	  arrow = this.paper_.circle(5, 5, 4.5);
+      a[ARROWTYPE.DOT] = arrow.marker(0, 0, 10, 10, 5, 5)
+       .attr({markerWidth: '4', id: 'markerDot'});
     },
 
     layout: function() {
@@ -178,13 +195,16 @@ if (typeof Snap != 'undefined') {
       return t;
     },
 
-    drawLine: function(x1, y1, x2, y2, linetype, arrowhead) {
+    drawLine: function(x1, y1, x2, y2, linetype, arrowhead, arrowtail) {
       var line = this.paper_.line(x1, y1, x2, y2).attr(LINE);
       if (linetype !== undefined) {
         line.attr('strokeDasharray', this.lineTypes_[linetype]);
       }
       if (arrowhead !== undefined) {
         line.attr('markerEnd', this.arrowMarkers_[arrowhead]);
+      }
+      if (arrowtail !== undefined) {
+        line.attr('markerStart', this.arrowMarkers_[arrowtail]);
       }
       return this.pushToStack(line);
     },
@@ -257,8 +277,10 @@ if (typeof Snap != 'undefined') {
   var SnapHandTheme = function(diagram, options, resume) {
         _.defaults(options, {
             'css-class': 'hand',
-            'font-size': 16,
-            'font-family': 'danielbd'
+            'font-size': 20,
+            'font-family': 'Raleway Medium', /*danielbd*/
+			'font-weight': 450,
+			'color': '#000000'
           });
 
         this.init(diagram, options, resume);
@@ -266,13 +288,16 @@ if (typeof Snap != 'undefined') {
 
   // Take the standard SnapTheme and make all the lines wobbly
   _.extend(SnapHandTheme.prototype, SnapTheme.prototype, {
-    drawLine: function(x1, y1, x2, y2, linetype, arrowhead) {
+    drawLine: function(x1, y1, x2, y2, linetype, arrowhead, arrowtail) {
       var line = this.paper_.path(handLine(x1, y1, x2, y2)).attr(LINE);
       if (linetype !== undefined) {
         line.attr('strokeDasharray', this.lineTypes_[linetype]);
       }
       if (arrowhead !== undefined) {
         line.attr('markerEnd', this.arrowMarkers_[arrowhead]);
+      }
+	  if (arrowtail !== undefined) {
+        line.attr('markerStart', this.arrowMarkers_[arrowtail]);
       }
       return this.pushToStack(line);
     },
