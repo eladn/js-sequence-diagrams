@@ -194,18 +194,41 @@ if (typeof Snap != 'undefined') {
 
       return t;
     },
+	
+	getArrowMarkerByArrowTypeAndColor: function(arrowtype, color) {
+		if (color === undefined) return this.arrowMarkers_[arrowtype];
+		var color_name = color.replace(/[^a-zA-Z0-9-]/g, '_');
+		var arrowMarkerKey = arrowtype + '__' + color_name; 
+		if (this.arrowMarkers_[arrowMarkerKey] === undefined) {
+			var originalArrowMarker = this.arrowMarkers_[arrowtype];
+			if (originalArrowMarker === undefined) return undefined;
+			var originalArrowMarkerId = originalArrowMarker.attr("id");
+			var newMarker = originalArrowMarker.clone();
+			newMarker.attr({"id": originalArrowMarkerId + '__' + color_name, "stroke": color, "fill": color}); /* TODO: sometimes we have to set fill instead of stroke? */
+			this.arrowMarkers_[arrowMarkerKey] = newMarker;
+		}
+		return this.arrowMarkers_[arrowMarkerKey];
+    },
 
-    drawLine: function(x1, y1, x2, y2, linetype, arrowhead, arrowtail) {
+    drawLine: function(x1, y1, x2, y2, attr, linetype, arrowhead, arrowtail) {
       var line = this.paper_.line(x1, y1, x2, y2).attr(LINE);
+	  var color = undefined;
+	  
+	  if (attr !== undefined) {
+		  line.attr(attr);
+		  if (attr["stroke"] !== undefined) color = attr["stroke"];
+	  }
+	  
       if (linetype !== undefined) {
         line.attr('strokeDasharray', this.lineTypes_[linetype]);
       }
       if (arrowhead !== undefined) {
-        line.attr('markerEnd', this.arrowMarkers_[arrowhead]);
+        line.attr('markerEnd', this.getArrowMarkerByArrowTypeAndColor(arrowhead, color));
       }
       if (arrowtail !== undefined) {
-        line.attr('markerStart', this.arrowMarkers_[arrowtail]);
+        line.attr('markerStart', this.getArrowMarkerByArrowTypeAndColor(arrowtail, color));
       }
+	  
       return this.pushToStack(line);
     },
 
@@ -288,16 +311,23 @@ if (typeof Snap != 'undefined') {
 
   // Take the standard SnapTheme and make all the lines wobbly
   _.extend(SnapHandTheme.prototype, SnapTheme.prototype, {
-    drawLine: function(x1, y1, x2, y2, linetype, arrowhead, arrowtail) {
+    drawLine: function(x1, y1, x2, y2, attr, linetype, arrowhead, arrowtail) {
       var line = this.paper_.path(handLine(x1, y1, x2, y2)).attr(LINE);
+	  var color = undefined;
+	  
+	  if (attr !== undefined) {
+		  line.attr(attr);
+		  if (attr["stroke"] !== undefined) color = attr["stroke"];
+	  }
+	  
       if (linetype !== undefined) {
         line.attr('strokeDasharray', this.lineTypes_[linetype]);
       }
       if (arrowhead !== undefined) {
-        line.attr('markerEnd', this.arrowMarkers_[arrowhead]);
+        line.attr('markerEnd', this.getArrowMarkerByArrowTypeAndColor(arrowhead, color));
       }
-	  if (arrowtail !== undefined) {
-        line.attr('markerStart', this.arrowMarkers_[arrowtail]);
+      if (arrowtail !== undefined) {
+        line.attr('markerStart', this.getArrowMarkerByArrowTypeAndColor(arrowtail, color));
       }
       return this.pushToStack(line);
     },

@@ -459,7 +459,7 @@ _.extend(BaseTheme.prototype, {
       var aX = getCenterX(a);
       this.drawLine(
        aX, y + this.actorsHeight_ - ACTOR_MARGIN,
-       aX, y + this.actorsHeight_ + ACTOR_MARGIN + this.signalsHeight_).attr(style);
+       aX, y + this.actorsHeight_ + ACTOR_MARGIN + this.signalsHeight_, style);
     }, this));
   },
 
@@ -514,10 +514,10 @@ _.extend(BaseTheme.prototype, {
 	  this.drawRect(minX, top_y, titleWidth, titleHeight).attr(style);
 	  
 	  var style = block.getDrawingStyle('GroupBox', this.diagram.default_styles);
-	  this.drawLine(minX+titleWidth, top_y,             maxX,            top_y,              linetype).attr(style);
-	  this.drawLine(minX,            top_y+titleHeight, minX,            bottom_y,           linetype).attr(style);
-	  this.drawLine(maxX,            top_y,             maxX,            bottom_y,           linetype).attr(style);
-	  this.drawLine(minX,            bottom_y,          maxX,            bottom_y,           linetype).attr(style);
+	  this.drawLine(minX+titleWidth, top_y,             maxX,            top_y,        style,   linetype);
+	  this.drawLine(minX,            top_y+titleHeight, minX,            bottom_y,     style,   linetype);
+	  this.drawLine(maxX,            top_y,             maxX,            bottom_y,     style,   linetype);
+	  this.drawLine(minX,            bottom_y,          maxX,            bottom_y,     style,   linetype);
 	  
 	  var font = block.getFontStyle('GroupTitle', this.diagram.default_styles);
 	  this.drawText(minX+GROUP_TITLE_PADDING, top_y+GROUP_TITLE_PADDING, groupTitle.message, font, ALIGN_LEFT);
@@ -541,9 +541,9 @@ _.extend(BaseTheme.prototype, {
 
       // Draw three lines, the last one with a arrow
 	  var style = block.getDrawingStyle('Signal', this.diagram.default_styles);
-      this.drawLine(aX, y1, aX + SELF_SIGNAL_WIDTH, y1, signal.linetype).attr(style);
-      this.drawLine(aX + SELF_SIGNAL_WIDTH, y1, aX + SELF_SIGNAL_WIDTH, y2, signal.linetype).attr(style);
-      this.drawLine(aX + SELF_SIGNAL_WIDTH, y2, aX, y2, signal.linetype, signal.headarrowtype).attr(style);
+      this.drawLine(aX, y1, aX + SELF_SIGNAL_WIDTH, y1, style, signal.linetype);
+      this.drawLine(aX + SELF_SIGNAL_WIDTH, y1, aX + SELF_SIGNAL_WIDTH, y2, style, signal.linetype);
+      this.drawLine(aX + SELF_SIGNAL_WIDTH, y2, aX, y2, style, signal.linetype, signal.headarrowtype);
 	  
 	  signal.minX = aX;
 	  signal.maxX = x + signal.textWidth;
@@ -608,7 +608,7 @@ _.extend(BaseTheme.prototype, {
 			var nextX = nextItem.actor.getCenterX();
 			var justBeforeNextX = nextX - SELF_SIGNAL_WIDTH;
 			
-			this.drawLine(justAfterCurX, line_y, justBeforeNextX, line_y, signal.linetype).attr(style);
+			this.drawLine(justAfterCurX, line_y, justBeforeNextX, line_y, style, signal.linetype);
 		}
 		
 		// Draw little segments on the main signal near the current actor.
@@ -619,7 +619,7 @@ _.extend(BaseTheme.prototype, {
 			var tailarrowtype = undefined;
 			if (isExtrimum && !curItem.isTarget && curItem.isSource) tailarrowtype = signal.tailarrowtype;
 			
-			this.drawLine(justBeforeCurX, line_y, curX, line_y, signal.linetype, headarrowtype, tailarrowtype).attr(style);
+			this.drawLine(justBeforeCurX, line_y, curX, line_y, style, signal.linetype, headarrowtype, tailarrowtype);
 		}
 		if (!isMostRight) {
 			var headarrowtype = undefined;
@@ -629,7 +629,7 @@ _.extend(BaseTheme.prototype, {
 			var tailarrowtype = undefined;
 			if (isExtrimum && !curItem.isTarget && curItem.isSource) tailarrowtype = signal.tailarrowtype;
 			
-			this.drawLine(justAfterCurX, line_y, curX, line_y, signal.linetype, headarrowtype, tailarrowtype).attr(style);
+			this.drawLine(justAfterCurX, line_y, curX, line_y, style, signal.linetype, headarrowtype, tailarrowtype);
 		}
 		
 		// TODO: maybe consider some different preferences.
@@ -643,29 +643,29 @@ _.extend(BaseTheme.prototype, {
 			// Draw receive from left --------
 			//                           |
 			//                           \-->
-			this.drawLine(justBeforeCurX, line_y, justBeforeCurX, bottom_y, signal.linetype).attr(style);
-			this.drawLine(justBeforeCurX, bottom_y, curX, bottom_y, signal.linetype, signal.headarrowtype).attr(style);
+			this.drawLine(justBeforeCurX, line_y, justBeforeCurX, bottom_y, style, signal.linetype);
+			this.drawLine(justBeforeCurX, bottom_y, curX, bottom_y, style, signal.linetype, signal.headarrowtype);
 		}
 		if (drawFeedFromRight) {
 			// Draw feed from right   ---
 			//                          \/
 			//                       --------
-			this.drawLine(curX, upper_y, justAfterCurX, upper_y, signal.linetype).attr(style);
-			this.drawLine(justAfterCurX, upper_y, justAfterCurX, line_y, signal.linetype, signal.headarrowtype).attr(style);
+			this.drawLine(curX, upper_y, justAfterCurX, upper_y, style, signal.linetype);
+			this.drawLine(justAfterCurX, upper_y, justAfterCurX, line_y, style, signal.linetype, signal.headarrowtype);
 		}
 		if (drawReceiveFromRight) {
 			// Draw receive from right --------
 			//                             |
 			//                          <--/
-			this.drawLine(justAfterCurX, line_y, justAfterCurX, bottom_y, signal.linetype).attr(style);
-			this.drawLine(justAfterCurX, bottom_y, curX, bottom_y, signal.linetype, signal.headarrowtype).attr(style);
+			this.drawLine(justAfterCurX, line_y, justAfterCurX, bottom_y, style, signal.linetype);
+			this.drawLine(justAfterCurX, bottom_y, curX, bottom_y, style, signal.linetype, signal.headarrowtype);
 		}
 		if (drawFeedFromLeft) {
 			// Draw feed from left    ---
 			//                       \/
 			//                    --------
-			this.drawLine(curX, upper_y, justBeforeCurX, upper_y, signal.linetype).attr(style);
-			this.drawLine(justBeforeCurX, upper_y, justBeforeCurX, line_y, signal.linetype, signal.headarrowtype).attr(style);
+			this.drawLine(curX, upper_y, justBeforeCurX, upper_y, style, signal.linetype);
+			this.drawLine(justBeforeCurX, upper_y, justBeforeCurX, line_y, style, signal.linetype, signal.headarrowtype);
 		}
 	}
   },
